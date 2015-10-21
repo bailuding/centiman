@@ -1,0 +1,255 @@
+// 2015.10.16 by Bailu Ding (bailuding@gmail.com)
+
+This is the code for distributed version of the Centiman system
+(Bailu Ding, Lucja Kot, Alan Demers, and Johannes Gehrke. 
+Centiman: elastic, high performance optimistic concurrency control by watermarking. 
+In Proceedings of the Sixth ACM Symposium on Cloud Computing (SoCC '15)).
+
+============COMPILATION==============
+
+This code is compiled with CMake (version 2.6 or above). 
+You can run ./make.sh to compile the code.
+Before compilation, you can run ./clean.sh to clean up all
+the build files.
+
+============RUN THE CODE=============
+
+1. Architecture
+
+The system has three components: processor, storage, and validator.
+Each component can have multiple instances. Each instance
+runs at a different node. Each server instance 
+(storage or validator) should be uniquely identified by its network
+address, i.e. IP + port.
+
+2. Command line arguments
+
+The command line arguments of storage and validator are
+
+ID CONFIG_FILE PORT
+
+The command line arguments of processor are
+
+ID CONFIG_FILE
+
+./config/script/run.sh shows an example of how to run the code locally.
+
+You may need to kill the processes if they are not shut down gracefully.
+See ./config/script/kill.sh for an example of how to kill the processes.
+
+3. System Configuration
+
+There is a sample configuration file ./config/config_sample. It contains
+the following options:
+
+validator_ip_config: this is the configuration file of the addresses 
+for validators. 
+
+storage_ip_config: this is the configuration file of the addresses 
+for storage instances.
+
+validator_hash_config: this is the hash assignment for data at validator 
+before migration.
+
+validator_new_hash_config: this is the hash assignment for data at validator
+after migration. This is only effective if the system runs migration experiment.
+
+const: this is the configuration file of the system constants. 
+
+generator: this is the configuration file of the transaction generator.
+
+prepare_time, switch_time, switch_mode:
+The system can be configured to run the migration experiment. In this experiment,
+the number of validators changes before and after the migration. 
+prepare_time is the time before the migration, switch_time is the migration time. 
+All of the time is in milliseconds.
+You can set switch_mode to 0 if the system does not need to change the number
+of validators during a run.
+
+=============WARNING===================
+
+After the recent refactor, the code is not compatible with previous implementation
+of the TPC-C or TATP benchmark. It only supports synthetic workload with uniform
+distribution now.
+
+==========CONFIGURATION EXAMPLE=========
+
+The ./config folder contains some configuration examples for running some experiments.
+
+./config/mg: example configurations for running migration experiment, i.e. increase the 
+number of validators.
+
+./config/wm_on: example configurations for studying how the frequency of the watermarks
+affect the system.
+
+./config/slow: example configurations for studying how slow outlier transactions affect
+the system.
+
+./config/wm_off: example configurations for studying how fast the cache becomes dirty 
+without using watermarks.
+
+==========CONFIGURATION==============
+
+1. validator_ip_config: this lists the addresses of validators
+
+The format is 
+
+ID=IP:PORT
+
+2. storage_ip_config: a list of the storage addresses. The format is the same as 
+that of the validator_ip_config file.
+
+3. validator_hash_config: assign the hash buckets of the data key space to multiple 
+validators.
+
+The format is 
+
+BUCKET_NUMBER
+ID_1 START_BUCKET_1_1 END_BUCKET_1_1
+ID_1 START_BUCKET_1_2 END_BUCKET_1_2
+...
+ID_N START_BUCKET_N_M END_BUCKET_N_M
+
+The first line is the number of buckets for the hash table.
+Each of the following lines specifies an assignment of the buckets.
+ID_I is the ID of the validator.
+START_BUCKET_I_J END_BUCKET_I_J assignments a range of buckets to validator ID_I.
+A validator can have multiple bucket assignments, i.e. bucket 2-3 and bucket 7-8.
+The assignment should cover all the buckets and the validators should not have
+overlapping assignment. 
+
+4. validator_new_hash_config: the hash assignment for validator after migration. 
+The format is the same as that of validator_hash_config file.
+
+5. generator: specify the profile of generated transactions. It should support a
+mix of multiple transaction types. But I haven't tested the transaction mixture 
+workload after the recent refactor. 
+
+The options are:
+
+NUM: the number of transaction types. Set it for a workload with a single transaction type.
+TYPE: the ID of the transaction type. Set it to 1 for a workload with a single transaction type.
+RATE: the percent of the mixture. Set it to 100 for a workload with a single transaction type.
+KEY_SIZE: the size of a record key in bytes.
+VALUE_SIZE: the size of a record value in bytes.
+READ_CNT: the number of reads per transaction.
+WRITE_CNT: the number of writes per transaction.
+
+6. const: specify all the remaining options for the system. 
+
+The options are:
+
+DB_SIZE: the number of items in a database
+
+NETWORK_PROCESS_BATCH_NUM: the number of messages to process at a socket 
+before switching to another socket. The network module is implemented with epoll.
+The server thread multiplexes a number of sockets. It can process multiple 
+messages from one socket before switching to another. Otherwise, it will process
+the messages in a round-robin manner. This intends to improve the deserialization 
+performance at the networking, but from my experience, it does not matter 
+significantly.
+
+NETWORK_TCP_NODELAY: The TCP_NODELAY option for sockets.
+
+NETWORK_BUF_SIZE: The size of the buffer for networking messages. Set it to a 
+sufficient large number, i.e. the size of the messages times the batch size.
+
+NETWORK_SEND_BATCH_SIZE: The number of messages to batch before sending to
+the network. This improves networking performance.
+
+NETWORK_SWIPE_TIME_MS: The wait time for sending out to the network. The networking
+module can be configured to sending out messages periodically, i.e. every 10 MS.
+
+A few more words about the networking options: there are three ways to trigger a send 
+system call at the network module: after buffering a number of messages 
+(NETWORK_SEND_BATCH_SIZE), when the 
+buffer is full (NETWORK_BUF_SIZE), or periodically (NETWORK_SWIPE_TIME_MS). If latency
+ is not a big concern, my best practice is to send out messages periodically. If latency
+ is critical, it is better to set the NETWORK_TCP_NODELAY to 1.
+ 
+
+UTIL_QUEUE_BATCH_SIZE: The number of messages to process in the system per batch. 
+The communication between different threads is done via a multi-thread safe queue. 
+You can get / put a number of items in batch to reduce the overhead of synchronization.
+This overhead will not be significant unless you have an extremely high throughput.
+There is also a chance of getting stuck when the batch size is greater than 1 if there
+is not enough messages flowing in the system.
+
+PROCESSOR_NUM: the number of processor instances.
+
+PROCESSOR_XCTION_QUEUE_SIZE: The maximum number of in-flight transactions at a processor.
+It is equivalent to the concept of concurrency level.
+
+STORAGE_NUM: The number of storage instances.
+
+VALIDATOR_NUM: The number of validator instances.
+
+VALIDATOR_BUF_LV: The size of the validator buffer. It sets the size of the buffer to be
+VALIDATOR_BUF_LV times the concurrency level of the system.
+
+VALIDATOR_REQUEST_BUF_SIZE: The number of committed transactions cached in the validator.
+
+XCTION_KEY_SIZE: Size of the record key. This should be the same as the generator file.
+
+XCTION_VALUE_SIZE: Size of the record value. This should be the same as the generator file.
+
+AVG_WRITE_CNT: The average number of writes per transaction in the workload. This is used to estimate
+the space required for caching the updates at the validator.
+
+WATERMARK_FREQUENCY: How frequent the watermark is updated. It is set to 0 when watermark is disabled.
+
+CLIENT_RUNTIME: The running time of a client, i.e. processor.
+
+SERVER_RUNTIME: The running time of a server, i.e. storage and validator.
+
+SHUTDOWN_TIME: The cooldown time for the system to gracefully shut down.
+
+NO_TIMER: Enable timing transaction latencies. Timing will increase the overhead of the processing due to 
+system calls.
+
+LOG_LEVEL: The level of logging. You can print messages at different log level. All the messages with log level 
+less than or equal to LOG_LEVEL will be printed.
+
+NO_COUNTER_LIST: Disable list counters. There are two different stats counters. The simple counter will compute 
+stats like sum, average, max and min. A list counter will record every value added to the counter. It is
+useful when you want to plot the latency distribution. Disable the list counter will reduce memory usage.
+
+SLOW_TXN_FREQUENCY: How frequency the processor issues a slow transaction. This is for the experiment on 
+outliers. You can issue a slow transaction every SLOW_TXN_FREQUENCY transactions.
+
+SLOW_TXN_LAG: The lag of a slow transaction. This simulates how slow a slow transaction is, i.e. it is processed 
+after SLOW_TXN_LAG transactions are processed. This is used for the outlier experiment.
+
+MODE_NO_VALID: Run without validators. This tests the raw performance of the storage and processor. You 
+still need to start the validator instances to run the system though.
+
+MODE_NO_ABORT: Run with dummy commit validation. In this mode, the processor still communicates with the validators, but 
+the validators simply reply with a commit. The validator will cache and garbage collect updates from committed 
+transactions in this case.
+
+MODE_NO_OP: Run without validation. In this mode, the validator will do nothing and simply reply with a commit.
+
+MODE_SI: Run transactions at snapshot isolation. This is not tested after code refactor.
+
+MODE_TPCC: Run TPC-C workload. This is not tested after code refactor.
+
+MODE_TPCC_TRACE: Run TPC-C by reading a TPC-C trace. This is not tested after code refactor.
+
+MODE_TPCC_SI: Run TPC-C at snapshot isolation. This is not tested after code refactor.
+
+MODE_FALSE_ABORT: Print logging messages to collect stats for false aborts. 
+
+TPCC_WAREHOUSE_NUM: The number of warehouses in TPC-C benchmark. This is not tested after code refactor.
+
+TPCC_WORKER_NUM: The number of workers per processor in TPC-C benchmark. This is not tested after code refactor.
+
+
+
+
+
+
+
+
+
+
+

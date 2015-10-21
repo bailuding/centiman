@@ -1,0 +1,11 @@
+validator_ip_config=../config/validator_ip_ec2
+storage_ip_config=../config/storage_ip_ec2
+validator_hash_config=../config/hash_old
+validator_new_hash_config=../config/hash_new
+
+const=../config/const
+generator=../config/generator
+
+prepare_time=8000000
+switch_time=8000000
+switch_mode=0

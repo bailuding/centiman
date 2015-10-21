@@ -1,0 +1,11 @@
+validator_ip_config=../config/validator_ip_sample
+storage_ip_config=../config/storage_ip_sample
+validator_hash_config=../config/hash_sample
+validator_new_hash_config=../config/hash_sample
+
+const=../config/const_sample
+generator=../config/generator_sample
+
+prepare_time=20000
+switch_time=1000000
+switch_mode=0
